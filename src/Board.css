@@ -1,0 +1,109 @@
+.board-container {
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+}
+
+.board {
+	display: grid;
+	grid-template-columns: repeat(10, 40px);
+	gap: 2px;
+	justify-content: center;
+	background-color: #3a3f47;
+	padding: 10px;
+	border-radius: 5px;
+	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+}
+
+.cell {
+	width: 40px;
+	height: 40px;
+	background-color: lightgray;
+	border: 1px solid gray;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	cursor: pointer;
+	font-size: 18px;
+	font-weight: bold;
+}
+
+.cell:hover {
+	background-color: darkgray;
+}
+
+.cell.revealed {
+	background-color: white;
+	cursor: default;
+}
+
+.cell.revealed:not(.mine) {
+	border: 1px solid black;
+}
+
+.cell.revealed[data-count='1'] {
+	color: blue;
+}
+.cell.revealed[data-count='2'] {
+	color: green;
+}
+.cell.revealed[data-count='3'] {
+	color: red;
+}
+.cell.revealed[data-count='4'] {
+	color: darkblue;
+}
+.cell.revealed[data-count='5'] {
+	color: brown;
+}
+.cell.revealed[data-count='6'] {
+	color: cyan;
+}
+.cell.revealed[data-count='7'] {
+	color: black;
+}
+.cell.revealed[data-count='8'] {
+	color: gray;
+}
+
+.reset-button {
+	margin: 15px 10px;
+	padding: 10px 20px;
+	
+	font-size: 16px;
+	border: none;
+	border-radius: 5px;
+	background-color: #ff5733;
+	color: white;
+	cursor: pointer;
+	transition: background 0.3s;
+}
+
+.reset-button:hover {
+	background-color: #e04e2b;
+}
+
+
+.game-message {
+	position: fixed;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	background: rgba(0, 0, 0, 0.8);
+	color: white;
+	padding: 20px 40px;
+	border-radius: 10px;
+	font-size: 24px;
+	text-align: center;
+	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
+  }
+  
+
+  .timer {
+	font-size: 20px;
+	margin-bottom: 10px;
+	background: rgba(255, 255, 255, 0.1);
+	padding: 5px 15px;
+	border-radius: 5px;
+  }
+  

@@ -1,0 +1,22 @@
+/* Styl dla całej strony */
+body {
+  font-family: Arial, sans-serif;
+  text-align: center;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  background-color: #282c34;
+  color: white;
+}
+
+/* Styl dla tytułu Minesweeper */
+h1 {
+  font-size: 36px;
+  font-weight: bold;
+  margin-bottom: 10px;
+  color: #dfdeda;
+  text-shadow: 2px 2px 5px rgba(0, 0, 0, 0.5);
+}
