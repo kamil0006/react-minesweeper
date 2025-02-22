@@ -69,7 +69,7 @@
 .reset-button {
 	margin: 15px 10px;
 	padding: 10px 20px;
-	
+
 	font-size: 16px;
 	border: none;
 	border-radius: 5px;
@@ -83,7 +83,6 @@
 	background-color: #e04e2b;
 }
 
-
 .game-message {
 	position: fixed;
 	top: 50%;
@@ -96,14 +95,28 @@
 	font-size: 24px;
 	text-align: center;
 	box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5);
-  }
-  
+}
 
-  .timer {
+.timer {
 	font-size: 20px;
 	margin-bottom: 10px;
 	background: rgba(255, 255, 255, 0.1);
 	padding: 5px 15px;
 	border-radius: 5px;
-  }
-  
+}
+
+.ai-button {
+	margin: 15px 10px;
+	padding: 10px 20px;
+	font-size: 16px;
+	border: none;
+	border-radius: 5px;
+	background-color: #4caf50;
+	color: white;
+	cursor: pointer;
+	transition: background 0.3s;
+}
+
+.ai-button:hover {
+	background-color: #45a049;
+}
