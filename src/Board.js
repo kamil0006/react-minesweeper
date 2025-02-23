@@ -101,6 +101,7 @@ const Board = () => {
 		} else {
 			clearInterval(timer);
 		}
+
 		return () => clearInterval(timer);
 	}, [isRunning, gameOver]);
 
@@ -110,6 +111,7 @@ const Board = () => {
 		if (!isRunning) {
 			setIsRunning(true);
 		}
+
 		if (gameOver || board[x][y].revealed || board[x][y].flagged) return;
 
 		let newBoard = board.map(row => row.map(cell => ({ ...cell })));
@@ -125,65 +127,83 @@ const Board = () => {
 			newBoard = revealAdjacent(newBoard, x, y);
 		}
 
-		setBoard([...newBoard]); // Wymuszenie odświeżenia React
+		// 🔹 Sprawdzamy wygraną na nowej planszy przed jej zapisaniem do stanu
 		if (checkWin(newBoard)) {
-			setIsRunning(false);
-			newBoard = newBoard.map(row => row.map(cell => (cell.isMine ? { ...cell, revealed: true } : cell)));
-			setBoard(newBoard);
+			console.log('🏆 Gra wygrana! Wszystkie pola bez min są odkryte.');
 			setGameMessage('🎉 Gratulacje! Wygrałeś! 🎉');
+			setIsRunning(false);
+			setGameOver(true);
 		}
+
+		setBoard(newBoard); // Aktualizujemy stan planszy
 	};
+
 	// Sprawdzanie wygranej
-	const checkWin = () => {
+	const checkWin = (currentBoard = board) => {
+		if (!Array.isArray(currentBoard)) {
+			console.error("❌ Błąd: przekazano niepoprawną planszę do checkWin()", currentBoard);
+			return false;
+		}
+	
 		let allNonMinesRevealed = true;
 		let allMinesFlagged = true;
 	
-		for (let row of board) {
+		for (let row of currentBoard) {
 			for (let cell of row) {
 				if (!cell.isMine && !cell.revealed) {
-					allNonMinesRevealed = false; // Jest jeszcze nieodkryte pole
+					allNonMinesRevealed = false; // Jeśli istnieje zakryte pole bez miny, gra jeszcze trwa
 				}
 				if (cell.isMine && !cell.flagged) {
-					allMinesFlagged = false; // Mina nie została oznaczona flagą
+					allMinesFlagged = false; // Jeśli jakaś mina nie jest oznaczona, gra jeszcze trwa
 				}
 			}
 		}
 	
 		if (allNonMinesRevealed || allMinesFlagged) {
-			console.log("🏆 AI wykryło wygraną!");
-			setGameMessage("🎉 AI wygrało! 🎉");
+			console.log("🏆 Gra wygrana! Wszystkie pola bez min są odkryte lub miny są poprawnie oznaczone.");
+			setGameMessage("🎉 Wygrałeś! 🎉");
 			setAiRunning(false);
+			setIsRunning(false); // ⏳ Zatrzymanie czasu po wygranej
+			setGameOver(true);
 			return true;
 		}
+	
 		return false;
 	};
 	
-	
 
 	const toggleFlag = (e, x, y) => {
-		e.preventDefault(); // Blokujemy domyślne menu kontekstowe przeglądarki
-
-		if (gameOver || board[x][y].revealed) return; // Nie można flagować odsłoniętych pól
-
-		let newBoard = board.map(row => row.map(cell => ({ ...cell }))); // Kopiujemy planszę
+		e.preventDefault(); // Blokujemy domyślne menu kontekstowe
+	
+		if (gameOver || board[x][y].revealed) return;
+	
+		let newBoard = board.map(row => row.map(cell => ({ ...cell })));
 		newBoard[x][y].flagged = !newBoard[x][y].flagged; // Przełączamy flagę
-
-		setBoard([...newBoard]); // Wymuszamy odświeżenie Reacta
+	
+		setBoard(newBoard); // Aktualizujemy stan planszy
+	
+		// 🔹 Sprawdzamy wygraną po KAŻDEJ zmianie flagi
+		setTimeout(() => {
+			if (checkWin(newBoard)) {
+				setAiRunning(false);
+			}
+		}, 100);
 	};
-
+	
 	const flagMines = () => {
 		let updatedBoard = board.map(row => row.map(cell => ({ ...cell })));
 		let minesToFlag = [];
-	
+
 		for (let x = 0; x < BOARD_SIZE; x++) {
 			for (let y = 0; y < BOARD_SIZE; y++) {
 				if (updatedBoard[x][y].revealed && updatedBoard[x][y].count > 0) {
 					let hiddenNeighbors = [];
 					let flaggedCount = 0;
-	
+
 					for (let dx = -1; dx <= 1; dx++) {
 						for (let dy = -1; dy <= 1; dy++) {
-							let nx = x + dx, ny = y + dy;
+							let nx = x + dx,
+								ny = y + dy;
 							if (nx >= 0 && ny >= 0 && nx < BOARD_SIZE && ny < BOARD_SIZE) {
 								if (!updatedBoard[nx][ny].revealed && !updatedBoard[nx][ny].flagged) {
 									hiddenNeighbors.push([nx, ny]);
@@ -193,7 +213,7 @@ const Board = () => {
 							}
 						}
 					}
-	
+
 					// Jeśli liczba ukrytych pól = liczbie min wokół, to wszystkie te pola to miny
 					if (hiddenNeighbors.length > 0 && hiddenNeighbors.length + flaggedCount === updatedBoard[x][y].count) {
 						minesToFlag.push(...hiddenNeighbors);
@@ -201,49 +221,45 @@ const Board = () => {
 				}
 			}
 		}
-	
+
 		if (minesToFlag.length > 0) {
 			minesToFlag.forEach(([fx, fy]) => {
 				updatedBoard[fx][fy].flagged = true;
 				console.log(`🚩 AI oznacza minę na (${fx}, ${fy})`);
 			});
-	
+
 			setBoard(prevBoard => updatedBoard); // Teraz AI nie resetuje planszy!
 			return true;
 		}
-	
+
 		return false;
 	};
-	
 
 	// Integracja AI
 	const askOpenAI = async () => {
-		console.log("✅ AI startuje i analizuje planszę...");
-	
+		console.log('✅ AI startuje i analizuje planszę...');
+
 		if (gameOver) {
-			console.log("⚠️ AI zatrzymane: gra zakończona.");
+			console.log('⚠️ AI zatrzymane: gra zakończona.');
 			setAiRunning(false);
 			return;
 		}
-	
+
 		// 🔹 Sprawdzamy, czy AI już wygrało po każdym ruchu
 		if (checkWin()) {
 			return; // AI przestaje działać, jeśli wykryło wygraną
 		}
-	
+
 		// 🔹 AI najpierw sprawdza, czy może oznaczyć miny
 		if (flagMines()) {
 			setTimeout(() => {
-				console.log("🔄 AI oznaczyło miny. Kontynuujemy...");
+				console.log('🔄 AI oznaczyło miny. Kontynuujemy...');
 				askOpenAI();
 			}, 500);
 			return;
 		}
-	
-		console.log("📡 Wysyłanie zapytania do OpenAI...");
-	
-	
-	
+
+		console.log('📡 Wysyłanie zapytania do OpenAI...');
 
 		const prompt = `
 			Jesteś AI grającym w Minesweeper. Oto aktualny stan planszy:
