@@ -31,8 +31,8 @@ const generateBoard = () => {
 		for (let y = 0; y < BOARD_SIZE; y++) {
 			if (!board[x][y].isMine) {
 				let count = 0;
-				[-1, 0, 1].forEach(dx => {
-					[-1, 0, 1].forEach(dy => {
+				for (let dx = -1; dx <= 1; dx++) {
+					for (let dy = -1; dy <= 1; dy++) {
 						let nx = x + dx,
 							ny = y + dy;
 						if (
@@ -45,8 +45,8 @@ const generateBoard = () => {
 						) {
 							count++;
 						}
-					});
-				});
+					}
+				}
 				board[x][y] = { ...board[x][y], count };
 			}
 		}
@@ -55,7 +55,7 @@ const generateBoard = () => {
 	return board;
 };
 
-// Poprawione odsłanianie pustych pól (`count === 0`)
+// Usprawniona funkcja odsłaniania pustych pól
 const revealAdjacent = (board, x, y) => {
 	let newBoard = board.map(row => row.map(cell => ({ ...cell })));
 	const queue = [[x, y]];
@@ -64,21 +64,29 @@ const revealAdjacent = (board, x, y) => {
 	while (queue.length > 0) {
 		const [cx, cy] = queue.shift();
 		const key = `${cx},${cy}`;
-		if (visited.has(key) || newBoard[cx][cy].revealed) continue;
+		if (visited.has(key)) continue;
 
 		newBoard[cx][cy].revealed = true;
 		visited.add(key);
 
+		// Dla pustych pól (count === 0) sprawdzamy sąsiadów
 		if (newBoard[cx][cy].count === 0) {
-			[-1, 0, 1].forEach(dx => {
-				[-1, 0, 1].forEach(dy => {
+			for (let dx = -1; dx <= 1; dx++) {
+				for (let dy = -1; dy <= 1; dy++) {
 					let nx = cx + dx,
 						ny = cy + dy;
-					if (nx >= 0 && ny >= 0 && nx < BOARD_SIZE && ny < BOARD_SIZE && !visited.has(`${nx},${ny}`)) {
+					if (
+						nx >= 0 && 
+						ny >= 0 && 
+						nx < BOARD_SIZE && 
+						ny < BOARD_SIZE && 
+						!newBoard[nx][ny].revealed && 
+						!newBoard[nx][ny].flagged
+					) {
 						queue.push([nx, ny]);
 					}
-				});
-			});
+				}
+			}
 		}
 	}
 	return newBoard;
@@ -91,6 +99,8 @@ const Board = () => {
 	const [time, setTime] = useState(0);
 	const [isRunning, setIsRunning] = useState(false);
 	const [aiRunning, setAiRunning] = useState(false);
+	const [flagCount, setFlagCount] = useState(0); // Dodajemy licznik flag
+	const [firstMove, setFirstMove] = useState(true); // Dodajemy flagę pierwszego ruchu
 
 	useEffect(() => {
 		let timer;
@@ -105,88 +115,289 @@ const Board = () => {
 		return () => clearInterval(timer);
 	}, [isRunning, gameOver]);
 
+	// Funkcja do generowania bezpiecznego pierwszego ruchu
+	const generateSafeFirstMove = (clickX, clickY) => {
+		let newBoard;
+		let isValidBoard = false;
+
+		// Generujemy planszę dopóki nie będzie miała pustego pola w miejscu pierwszego kliknięcia
+		while (!isValidBoard) {
+			newBoard = generateBoard();
+			if (!newBoard[clickX][clickY].isMine && newBoard[clickX][clickY].count === 0) {
+				isValidBoard = true;
+			}
+		}
+
+		return newBoard;
+	};
+
 	const revealCell = (x, y) => {
-		console.log(`🟢 AI próbuje kliknąć (${x}, ${y})`);
+		if (gameOver || board[x][y].revealed || board[x][y].flagged) return;
 
 		if (!isRunning) {
 			setIsRunning(true);
 		}
 
-		if (gameOver || board[x][y].revealed || board[x][y].flagged) return;
+		// Sprawdzenie pierwszego ruchu
+		if (firstMove) {
+			setFirstMove(false);
+			
+			// Jeśli pierwszy ruch trafił na minę lub liczbę, generujemy nową planszę z pustym polem w miejscu kliknięcia
+			if (board[x][y].isMine || board[x][y].count > 0) {
+				const safeBoard = generateSafeFirstMove(x, y);
+				setBoard(safeBoard);
+				
+				// Wykorzystujemy nową planszę do odsłonięcia pola
+				const newBoard = revealAdjacent(safeBoard, x, y);
+				setBoard(newBoard);
+				return;
+			}
+		}
 
 		let newBoard = board.map(row => row.map(cell => ({ ...cell })));
 
 		if (newBoard[x][y].isMine) {
+			// Przegraliśmy - odkrywamy wszystkie miny
 			setGameOver(true);
 			setIsRunning(false);
 			setGameMessage('💥 Game Over! 💥');
-			newBoard = newBoard.map(row => row.map(cell => (cell.isMine ? { ...cell, revealed: true } : cell)));
+			newBoard = newBoard.map(row => 
+				row.map(cell => 
+					cell.isMine ? { ...cell, revealed: true } : cell
+				)
+			);
 			setBoard(newBoard);
 			return;
 		} else {
+			// Odsłaniamy puste pola
 			newBoard = revealAdjacent(newBoard, x, y);
 		}
 
-		// 🔹 Sprawdzamy wygraną na nowej planszy przed jej zapisaniem do stanu
+		// Sprawdzamy wygraną
 		if (checkWin(newBoard)) {
 			console.log('🏆 Gra wygrana! Wszystkie pola bez min są odkryte.');
 			setGameMessage('🎉 Gratulacje! Wygrałeś! 🎉');
 			setIsRunning(false);
 			setGameOver(true);
+			
+			// Oznaczamy wszystkie pozostałe miny flagami
+			newBoard = newBoard.map(row => 
+				row.map(cell => 
+					cell.isMine && !cell.flagged ? { ...cell, flagged: true } : cell
+				)
+			);
 		}
 
-		setBoard(newBoard); // Aktualizujemy stan planszy
+		setBoard(newBoard);
 	};
 
-	// Sprawdzanie wygranej
+	// Usprawnione sprawdzanie wygranej
 	const checkWin = (currentBoard = board) => {
 		if (!Array.isArray(currentBoard)) {
 			console.error('❌ Błąd: przekazano niepoprawną planszę do checkWin()', currentBoard);
 			return false;
 		}
 
-		let allNonMinesRevealed = true;
-		let allMinesFlagged = true;
-
-		for (let row of currentBoard) {
-			for (let cell of row) {
-				if (!cell.isMine && !cell.revealed) {
-					allNonMinesRevealed = false; // Jeśli istnieje zakryte pole bez miny, gra jeszcze trwa
-				}
-				if (cell.isMine && !cell.flagged) {
-					allMinesFlagged = false; // Jeśli jakaś mina nie jest oznaczona, gra jeszcze trwa
+		// Sprawdzamy czy wszystkie pola bez min są odkryte
+		for (let x = 0; x < BOARD_SIZE; x++) {
+			for (let y = 0; y < BOARD_SIZE; y++) {
+				if (!currentBoard[x][y].isMine && !currentBoard[x][y].revealed) {
+					return false; // Znaleziono nieodkryte pole bez miny
 				}
 			}
 		}
-
-		if (allNonMinesRevealed || allMinesFlagged) {
-			console.log('🏆 Gra wygrana! Wszystkie pola bez min są odkryte lub miny są poprawnie oznaczone.');
-			setGameMessage('🎉 Wygrałeś! 🎉');
-			setAiRunning(false);
-			setIsRunning(false); // ⏳ Zatrzymanie czasu po wygranej
-			setGameOver(true);
-			return true;
-		}
-
-		return false;
+		
+		return true; // Wszystkie pola bez min są odkryte
 	};
 
 	const toggleFlag = (e, x, y) => {
-		e.preventDefault(); // Blokujemy domyślne menu kontekstowe
+		if (e) e.preventDefault(); // Blokujemy domyślne menu kontekstowe
 
 		if (gameOver || board[x][y].revealed) return;
 
 		let newBoard = board.map(row => row.map(cell => ({ ...cell })));
-		newBoard[x][y].flagged = !newBoard[x][y].flagged; // Przełączamy flagę
+		const newFlagValue = !newBoard[x][y].flagged;
+		
+		// Aktualizacja licznika flag
+		if (newFlagValue) {
+			setFlagCount(prev => prev + 1);
+		} else {
+			setFlagCount(prev => prev - 1);
+		}
+		
+		newBoard[x][y].flagged = newFlagValue;
+		setBoard(newBoard);
 
-		setBoard(newBoard); // Aktualizujemy stan planszy
+		// Sprawdzamy wygraną po dodaniu flagi
+		if (checkWin(newBoard)) {
+			setGameMessage('🎉 Gratulacje! Wygrałeś! 🎉');
+			setIsRunning(false);
+			setGameOver(true);
+			setAiRunning(false);
+		}
+	};
 
-		// 🔹 Sprawdzamy wygraną po KAŻDEJ zmianie flagi
-		setTimeout(() => {
-			if (checkWin(newBoard)) {
-				setAiRunning(false);
+	// Usprawniona funkcja znajdowania najbezpieczniejszego ruchu
+	const getSafestMove = () => {
+		// Krok 1: Identyfikacja pewnych ruchów opartych na logice sapera
+		const safeMovesInfo = findCertainMoves();
+		
+		if (safeMovesInfo.safeCells.length > 0) {
+			const [x, y] = safeMovesInfo.safeCells[0];
+			console.log(`🛡️ AI znalazło pewne bezpieczne pole: (${x}, ${y})`);
+			return `${x},${y}`;
+		}
+		
+		if (safeMovesInfo.mineCells.length > 0) {
+			const [x, y] = safeMovesInfo.mineCells[0];
+			console.log(`🚩 AI znalazło pewną minę: (${x}, ${y})`);
+			return `FLAG ${x} ${y}`;
+		}
+		
+		// Krok 2: Jeśli nie ma pewnych ruchów, obliczamy prawdopodobieństwa
+		let bestMove = null;
+		let minRisk = Infinity;
+
+		for (let x = 0; x < BOARD_SIZE; x++) {
+			for (let y = 0; y < BOARD_SIZE; y++) {
+				if (!board[x][y].revealed && !board[x][y].flagged) {
+					// Ustal ryzyko ruchu na podstawie analizy sąsiadów
+					const risk = calculateRisk(x, y);
+					
+					if (risk < minRisk) {
+						minRisk = risk;
+						bestMove = [x, y];
+					}
+				}
 			}
-		}, 100);
+		}
+
+		if (!bestMove) {
+			console.warn('⚠️ AI nie znalazło bezpiecznego ruchu – wybiera losowe pole.');
+			return getRandomMove();
+		}
+
+		console.log(`🛡️ AI wybiera najbezpieczniejsze pole: (${bestMove[0]}, ${bestMove[1]}) z ryzykiem: ${minRisk.toFixed(2)}`);
+		return `${bestMove[0]},${bestMove[1]}`;
+	};
+
+	// Nowa funkcja do obliczania ryzyka ruchu
+	const calculateRisk = (x, y) => {
+		// Sprawdzamy sąsiedztwo dla odsłoniętych pól
+		let totalRisk = 0;
+		let relevantNeighbors = 0;
+		
+		for (let dx = -2; dx <= 2; dx++) {
+			for (let dy = -2; dy <= 2; dy++) {
+				const nx = x + dx;
+				const ny = y + dy;
+				
+				if (nx >= 0 && ny >= 0 && nx < BOARD_SIZE && ny < BOARD_SIZE && board[nx][ny].revealed) {
+					// Obliczamy ryzyko na podstawie liczby min w pobliżu pola
+					const distance = Math.max(Math.abs(dx), Math.abs(dy));
+					const weight = 1 / distance; // Im bliżej, tym większa waga
+					
+					const cell = board[nx][ny];
+					if (cell.count > 0) {
+						// Liczymy sąsiadów tego pola
+						let flaggedNeighbors = 0;
+						let uncoveredNeighbors = 0;
+						
+						for (let ndx = -1; ndx <= 1; ndx++) {
+							for (let ndy = -1; ndy <= 1; ndy++) {
+								const nnx = nx + ndx;
+								const nny = ny + ndy;
+								
+								if (nnx >= 0 && nny >= 0 && nnx < BOARD_SIZE && nny < BOARD_SIZE) {
+									if (board[nnx][nny].flagged) {
+										flaggedNeighbors++;
+									} else if (!board[nnx][nny].revealed) {
+										uncoveredNeighbors++;
+									}
+								}
+							}
+						}
+						
+						// Jeśli pole jest wśród nieodkrytych sąsiadów pola z cyfrą
+						if (Math.abs(x - nx) <= 1 && Math.abs(y - ny) <= 1) {
+							const remainingMines = cell.count - flaggedNeighbors;
+							if (remainingMines > 0 && uncoveredNeighbors > 0) {
+								const localRisk = weight * (remainingMines / uncoveredNeighbors);
+								totalRisk += localRisk;
+								relevantNeighbors++;
+							}
+						}
+					}
+				}
+			}
+		}
+		
+		// Jeśli nie znaleziono żadnych informacji, zakładamy średnie ryzyko
+		if (relevantNeighbors === 0) {
+			return 0.5; // Neutralne ryzyko
+		}
+		
+		return totalRisk / relevantNeighbors;
+	};
+
+	// Nowa funkcja do identyfikacji pewnych ruchów na podstawie logiki sapera
+	const findCertainMoves = () => {
+		const safeCells = [];
+		const mineCells = [];
+		
+		// Sprawdzamy każde odkryte pole z liczbą
+		for (let x = 0; x < BOARD_SIZE; x++) {
+			for (let y = 0; y < BOARD_SIZE; y++) {
+				if (board[x][y].revealed && board[x][y].count > 0) {
+					// Zbieramy informacje o sąsiadach
+					const neighbors = [];
+					let flaggedCount = 0;
+					let unrevealedCount = 0;
+					
+					for (let dx = -1; dx <= 1; dx++) {
+						for (let dy = -1; dy <= 1; dy++) {
+							if (dx === 0 && dy === 0) continue;
+							
+							const nx = x + dx;
+							const ny = y + dy;
+							
+							if (nx >= 0 && ny >= 0 && nx < BOARD_SIZE && ny < BOARD_SIZE) {
+								if (board[nx][ny].flagged) {
+									flaggedCount++;
+								} else if (!board[nx][ny].revealed) {
+									unrevealedCount++;
+									neighbors.push([nx, ny]);
+								}
+							}
+						}
+					}
+					
+					// Pewna flaga: Jeśli liczba nieodkrytych pól = liczbie min (liczba - flagi)
+					if (unrevealedCount > 0 && board[x][y].count - flaggedCount === unrevealedCount) {
+						// Wszystkie nieodkryte pola są minami
+						neighbors.forEach(([nx, ny]) => {
+							// Sprawdzamy czy ta mina jest już na liście mineCells
+							if (!mineCells.some(([mx, my]) => mx === nx && my === ny)) {
+								mineCells.push([nx, ny]);
+							}
+						});
+					}
+					
+					// Pewne bezpieczne pola: Jeśli liczba oflagowanych pól = liczbie
+					if (unrevealedCount > 0 && board[x][y].count === flaggedCount) {
+						// Wszystkie pozostałe nieodkryte pola są bezpieczne
+						neighbors.forEach(([nx, ny]) => {
+							// Sprawdzamy czy to bezpieczne pole jest już na liście safeCells
+							if (!safeCells.some(([sx, sy]) => sx === nx && sy === ny)) {
+								safeCells.push([nx, ny]);
+							}
+						});
+					}
+				}
+			}
+		}
+		
+		return { safeCells, mineCells };
 	};
 
 	const getRandomMove = () => {
@@ -203,7 +414,7 @@ const Board = () => {
 		if (availableMoves.length === 0) {
 			console.error('⚠️ Brak dostępnych ruchów! AI kończy grę.');
 			setAiRunning(false);
-			return '0,0';
+			return null;
 		}
 
 		let [rx, ry] = availableMoves[Math.floor(Math.random() * availableMoves.length)];
@@ -211,48 +422,8 @@ const Board = () => {
 		return `${rx},${ry}`;
 	};
 
-	const getSafestMove = () => {
-		let bestMove = null;
-		let minRisk = Infinity;
-
-		for (let x = 0; x < BOARD_SIZE; x++) {
-			for (let y = 0; y < BOARD_SIZE; y++) {
-				if (!board[x][y].revealed && !board[x][y].flagged) {
-					let surroundingMines = 0;
-					let surroundingCovered = 0;
-
-					[-1, 0, 1].forEach(dx => {
-						[-1, 0, 1].forEach(dy => {
-							let nx = x + dx,
-								ny = y + dy;
-							if (nx >= 0 && ny >= 0 && nx < BOARD_SIZE && ny < BOARD_SIZE) {
-								if (board[nx][ny].isMine) surroundingMines++;
-								if (!board[nx][ny].revealed) surroundingCovered++;
-							}
-						});
-					});
-
-					let riskFactor = surroundingMines + surroundingCovered;
-
-					if (riskFactor < minRisk) {
-						minRisk = riskFactor;
-						bestMove = [x, y];
-					}
-				}
-			}
-		}
-
-		if (!bestMove) {
-			console.warn('⚠️ AI nie znalazło bezpiecznego ruchu – wybiera losowe pole.');
-			return getRandomMove();
-		}
-
-		console.log(`🛡️ AI wybiera najbezpieczniejsze pole: (${bestMove[0]}, ${bestMove[1]})`);
-		return `${bestMove[0]},${bestMove[1]}`;
-	};
-
 	const handleAIFailure = () => {
-		console.warn("⚠️ OpenAI nie odpowiedziało – AI wybiera bezpieczny lub losowy ruch.");
+		console.warn("⚠️ OpenAI nie odpowiedziało – AI używa własnej logiki.");
 	
 		if (gameOver || checkWin()) { 
 			console.log("🏁 AI zatrzymane po zakończeniu gry.");
@@ -260,20 +431,32 @@ const Board = () => {
 			return;
 		}
 	
+		// Używamy usprawnionej logiki zamiast losowego ruchu
 		let move = getSafestMove(); 
 	
 		if (!move) {
-			console.warn("⚠️ AI nie znalazło żadnego bezpiecznego pola – wybiera losowy ruch.");
-			move = getRandomMove();
+			console.warn("⚠️ AI nie znalazło żadnego ruchu – kończy działanie");
+			setAiRunning(false);
+			return;
 		}
 	
-		let [x, y] = move.split(',').map(Number);
+		// Wykonanie ruchu
+		if (move.includes("FLAG")) {
+			let parts = move.split(' ');
+			let x = parseInt(parts[1]);
+			let y = parseInt(parts[2]);
 	
-		console.log("🎯 AI klika:", x, y);
-		revealCell(x, y);
+			console.log(`🚩 AI oznacza minę: (${x}, ${y})`);
+			toggleFlag(null, x, y);
+		} else {
+			let [x, y] = move.split(',').map(Number);
+			console.log(`🎯 AI klika: (${x}, ${y})`);
+			revealCell(x, y);
+		}
 	
+		// Planujemy kolejny ruch AI
 		setTimeout(() => {
-			if (!gameOver && !checkWin()) {
+			if (!gameOver && !checkWin() && aiRunning) {
 				console.log("🔄 AI wykonuje kolejny ruch...");
 				askOpenAI();
 			} else {
@@ -282,50 +465,58 @@ const Board = () => {
 			}
 		}, 500);
 	};
-	
 
+	// Ulepszony prompt dla OpenAI
 	const generatePrompt = () => {
+		// Przygotowanie wizualizacji planszy
+		let boardRepresentation = "";
+		for (let x = 0; x < BOARD_SIZE; x++) {
+			let rowStr = "";
+			for (let y = 0; y < BOARD_SIZE; y++) {
+				const cell = board[x][y];
+				if (cell.revealed) {
+					rowStr += cell.count === 0 ? "·" : cell.count;
+				} else if (cell.flagged) {
+					rowStr += "F";
+				} else {
+					rowStr += "?";
+				}
+				rowStr += " ";
+			}
+			boardRepresentation += rowStr.trim() + "\n";
+		}
+		
 		return `
-			Jesteś **ekspertem w grze Minesweeper**. Twoim zadaniem jest grać **jak doświadczony gracz**, używając **logiki i analizy prawdopodobieństwa**.
-	
-			**🔹 Oto zasady twojej strategii:**
-			1️⃣ **Flaga pewnych min:**  
-				- Jeśli liczba zakrytych sąsiadów = liczbie na polu, oznacz je jako miny 🚩.  
-			2️⃣ **Odsłanianie pewnych pól:**  
-				- Jeśli liczba oznaczonych min wokół pola = liczbie na polu, odkryj pozostałe pola.  
-			3️⃣ **Analiza ryzyka:**  
-				- Jeśli nie masz pewnego ruchu, **znajdź pole z najmniejszym prawdopodobieństwem miny** i kliknij je.  
-			4️⃣ **Zgadywanie (w ostateczności):**  
-				- Jeśli nie możesz obliczyć ruchu, wybierz **najbezpieczniejsze pole w otwartym obszarze**.  
-			5️⃣ **Nigdy nie klikaj pola, które może być miną, jeśli masz inną opcję!**  
-	
-			**🔹 Aktualna plansza:**
-			- **?** = Zakryte pole  
-			- **🚩** = Flaga (oznaczona mina)  
-			- **💣** = Mina  
-			- **Cyfra** = Liczba min w sąsiedztwie  
-	
-			**🔹 Twoje zadanie:**  
-			- Zwróć najlepszy możliwy ruch w formacie X,Y (np. 3,4).  
-			- Jeśli musisz oznaczyć minę, zwróć FLAG X,Y.  
-			- Nie podawaj dodatkowych informacji  tylko ruch.
-	
-			**🟢 Aktualna sytuacja na planszy:**  
-			${board
-				.map(row =>
-					row.map(cell => (cell.revealed ? (cell.isMine ? '💣' : cell.flagged ? '🚩' : cell.count) : '?')).join(' ')
-				)
-				.join('\n')}
+			Jesteś **ekspertem w grze Minesweeper (Saper)**. Twoim zadaniem jest znalezienie najbezpieczniejszego ruchu.
+			Plansza ma wymiary ${BOARD_SIZE}x${BOARD_SIZE} i zawiera ${MINES_COUNT} min.
+			
+			**Oznaczenia na planszy:**
+			- **?** = Nieodkryte pole
+			- **F** = Oznaczona flaga (przypuszczalna mina)
+			- **·** = Odkryte puste pole (bez min w pobliżu)
+			- **1-8** = Liczba min w sąsiedztwie (8 sąsiednich pól)
+			
+			**Algorytm wnioskowania:**
+			1. Jeśli wszystkie nieodkryte pola wokół liczby są minami, oznacz je flagami.
+			2. Jeśli liczba flag wokół pola = liczbie na tym polu, pozostałe sąsiednie pola są bezpieczne.
+			3. Stosuj przekrojową analizę sąsiadujących liczb, aby wnioskować o pozycji min.
+			4. Używaj prawdopodobieństwa, gdy pewne wnioskowanie nie jest możliwe.
+			
+			**Aktualna plansza (współrzędne [x,y] od [0,0] do [${BOARD_SIZE-1},${BOARD_SIZE-1}]):**
+			${boardRepresentation}
+			
+			**Zwróć TYLKO jeden z formatów:**
+			1. "x,y" - aby odkryć bezpieczne pole (np. "3,4")
+			2. "FLAG x y" - aby oznaczyć minę (np. "FLAG 2 7")
+			
+			Twoja odpowiedź powinna zawierać TYLKO współrzędne, bez żadnych dodatkowych wyjaśnień.
 		`;
 	};
 
 	let moveCounter = 0; // Licznik ruchów AI, aby unikać zapętlenia
 
 	const askOpenAI = async () => {
-		console.log("✅ AI startuje i analizuje planszę...");
-	
-		if (gameOver || checkWin()) { 
-			console.log("🏁 AI zakończyło działanie. Gra się skończyła.");
+		if (gameOver || checkWin() || !aiRunning) { 
 			setAiRunning(false);
 			return;
 		}
@@ -337,59 +528,75 @@ const Board = () => {
 			return;
 		}
 	
-		console.log("📡 Wysyłanie zapytania do OpenAI...");
-	
+		// Ustawiamy timeout na wypadek problemu z API
 		let aiTimeout = setTimeout(() => {
-			console.warn("⏳ AI za długo myśli – wybiera bezpieczny ruch.");
+			console.warn("⏳ AI za długo myśli – używa własnej logiki.");
 			handleAIFailure();
-		}, 2500); // AI ma maksymalnie 2.5 sekundy na decyzję
+		}, 3000); // Zwiększamy czas na decyzję
 	
 		try {
 			const response = await openai.chat.completions.create({
-				model: 'gpt-4o-mini',
-				messages: [{ role: 'system', content: generatePrompt() }],
+				model: 'gpt-4o-mini', // Można też użyć lepszego modelu jak gpt-4o
+				messages: [
+					{ role: 'system', content: generatePrompt() },
+					// Dodajemy przykład instruujący model o oczekiwanym formacie
+					{ role: 'user', content: 'Wybierz najbezpieczniejszy ruch.' },
+					{ role: 'assistant', content: '2,3' } // Przykład oczekiwanej odpowiedzi
+				],
+				temperature: 0.3, // Niższa temperatura dla bardziej deterministycznych odpowiedzi
 				max_tokens: 10,
 			});
 	
-			clearTimeout(aiTimeout); 
-	
-			console.log("🔄 OpenAI odpowiedziało:", response);
+			clearTimeout(aiTimeout);
 	
 			let move = response.choices?.[0]?.message?.content?.trim();
 			console.log("🧠 AI wybrało ruch:", move);
 	
 			if (!move || (!move.includes(",") && !move.includes("FLAG"))) {
-				console.warn("⚠️ OpenAI zwróciło błędne dane lub brak ruchu. AI wybiera losowy ruch.");
+				console.warn("⚠️ OpenAI zwróciło błędne dane. AI używa własnej logiki.");
 				handleAIFailure();
 				return;
 			}
 	
-			if (gameOver || checkWin()) { 
-				console.log("🏁 AI zatrzymane po zakończeniu gry.");
+			if (gameOver || checkWin() || !aiRunning) { 
+				console.log("🏁 AI zatrzymane - gra się zakończyła.");
 				setAiRunning(false);
 				return;
 			}
 	
-			if (move.includes("FLAG")) {
-				let parts = move.split(' ');
+			// Wykonanie ruchu
+			if (move.toLowerCase().includes("flag")) {
+				let parts = move.split(/\s+/);
 				let x = parseInt(parts[1]);
 				let y = parseInt(parts[2]);
 	
 				console.log(`🚩 AI oznacza minę: (${x}, ${y})`);
-				toggleFlag(null, x, y);
-			} else {
-				let [x, y] = move.split(',').map(Number);
-				if (isNaN(x) || isNaN(y) || board[x][y].revealed || board[x][y].flagged) {
-					console.error("❌ OpenAI zwróciło niepoprawne lub już odkryte pole. AI wybiera bezpieczny ruch.");
+				if (isNaN(x) || isNaN(y) || x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE) {
+					console.error("❌ OpenAI zwróciło niepoprawne współrzędne flagi. AI używa własnej logiki.");
 					handleAIFailure();
 					return;
 				}
-				console.log("🎯 AI klika:", x, y);
+				
+				toggleFlag(null, x, y);
+			} else {
+				let coords = move.split(/[,\s]+/).map(Number);
+				let x = coords[0];
+				let y = coords[1];
+				
+				if (isNaN(x) || isNaN(y) || x < 0 || x >= BOARD_SIZE || y < 0 || y >= BOARD_SIZE || 
+					board[x][y].revealed || board[x][y].flagged) {
+					console.error("❌ OpenAI zwróciło niepoprawne pole. AI używa własnej logiki.");
+					handleAIFailure();
+					return;
+				}
+				
+				console.log(`🎯 AI klika: (${x}, ${y})`);
 				revealCell(x, y);
 			}
 	
+			// Planujemy kolejny ruch AI
 			setTimeout(() => {
-				if (!gameOver && !checkWin()) {
+				if (!gameOver && !checkWin() && aiRunning) {
 					console.log("🔄 AI wykonuje kolejny ruch...");
 					askOpenAI();
 				} else {
@@ -400,55 +607,99 @@ const Board = () => {
 	
 		} catch (error) {
 			console.error("❌ Błąd komunikacji z OpenAI:", error);
+			clearTimeout(aiTimeout);
 			handleAIFailure();
 		}
 	};
-	
 
 	const startAI = () => {
-		if (gameOver || aiRunning) {
-			console.log('⚠️ AI nie może się uruchomić: gameOver =', gameOver, ', aiRunning =', aiRunning);
-			return;
-		}
-		console.log('🤖 AI uruchomione!');
+		if (gameOver || aiRunning) return;
+		
 		setAiRunning(true);
-		askOpenAI();
+		moveCounter = 0;
+		
+		// Jeśli jest to pierwszy ruch w grze, AI wybiera losowe pole w narożniku lub na środku
+		if (firstMove) {
+			const cornerMoves = [[0, 0], [0, BOARD_SIZE-1], [BOARD_SIZE-1, 0], [BOARD_SIZE-1, BOARD_SIZE-1]];
+			const centerMove = [Math.floor(BOARD_SIZE/2), Math.floor(BOARD_SIZE/2)];
+			
+			// Losujemy między narożnikiem a środkiem (kąty są zazwyczaj bezpieczniejsze)
+			const [x, y] = Math.random() > 0.5 ? 
+				cornerMoves[Math.floor(Math.random() * cornerMoves.length)] : 
+				centerMove;
+				
+			console.log(`🎮 AI wykonuje pierwszy ruch: (${x}, ${y})`);
+			revealCell(x, y);
+			
+			// Planujemy kolejny ruch po krótkim opóźnieniu
+			setTimeout(() => {
+				if (!gameOver && !checkWin() && aiRunning) {
+					askOpenAI();
+				}
+			}, 500);
+		} else {
+			// Jeśli gra jest już w toku, używamy OpenAI
+			askOpenAI();
+		}
 	};
 
 	const resetGame = () => {
-		console.log('🔄 Resetowanie gry...');
-		setBoard(generateBoard()); // Tworzymy nową planszę
+		setBoard(generateBoard());
 		setGameOver(false);
 		setGameMessage('');
 		setTime(0);
 		setIsRunning(false);
 		setAiRunning(false);
-		moveCounter = 0; // Resetujemy licznik ruchów AI
+		setFlagCount(0);
+		setFirstMove(true);
+		moveCounter = 0;
 	};
 
 	return (
 		<div className='board-container'>
 			<h1>Minesweeper</h1>
-			<button onClick={resetGame} className='reset-button'>
-				🔄 Restart
-			</button>
-			<button onClick={startAI} className='ai-button'>
-				🤖 Start AI
-			</button>
+			<div className='game-info'>
+				<p className='timer'>⏳ Czas: {time}s</p>
+				<p className='flag-counter'>🚩 Flagi: {flagCount}/{MINES_COUNT}</p>
+			</div>
+			
+			<div className='controls'>
+				<button onClick={resetGame} className='reset-button'>
+					🔄 Restart
+				</button>
+				<button 
+					onClick={startAI} 
+					className='ai-button'
+					disabled={gameOver || aiRunning}>
+					{aiRunning ? '🤖 AI pracuje...' : '🤖 Start AI'}
+				</button>
+			</div>
 
 			{gameMessage && <h2 className='game-message'>{gameMessage}</h2>}
-			<p className='timer'>⏳ Czas: {time}s</p>
+			
 			<div className='board'>
 				{board.map((row, x) => (
 					<div key={x} className='row'>
 						{row.map((cell, y) => (
 							<div
 								key={y}
-								className={`cell ${cell.revealed ? 'revealed' : ''} ${cell.isMine && gameOver ? 'mine' : ''}`}
+								className={`cell ${cell.revealed ? 'revealed' : ''} 
+									${cell.isMine && cell.revealed ? 'mine' : ''} 
+									${cell.flagged ? 'flagged' : ''} 
+									${cell.count > 0 && cell.revealed ? `count-${cell.count}` : ''}`}
 								onClick={() => revealCell(x, y)}
-								onContextMenu={e => toggleFlag(e, x, y)} // Dodajemy obsługę prawego kliknięcia
+								onContextMenu={e => toggleFlag(e, x, y)}
 								data-count={cell.count}>
-								{cell.flagged ? '🚩' : cell.revealed ? (cell.isMine ? '💣' : cell.count || '') : ''}
+								{cell.flagged ? 
+									'🚩' : 
+									(cell.revealed ? 
+										(cell.isMine ? 
+											'💣' : 
+											(cell.count > 0 ? cell.count : '')
+										) : 
+										''
+									)
+								}
 							</div>
 						))}
 					</div>
